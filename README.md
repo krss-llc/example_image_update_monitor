@@ -1,155 +1,26 @@
-Below is a ready‑to‑drop‑in **`README.md`** that explains what this workflow does, how and when it runs, and what artifacts/notifications it produces.
+# Image Update Monitor
 
-***
+## The Problem
+Maintaining secure container environments requires tracking upstream base image updates. Manually checking for digest changes is inefficient and prone to human error, creating gaps in supply chain visibility.
 
-# Check Base Image Updates Workflow
+## The Solution
+An automated GitHub Actions workflow that tracks a container base image digest, detects updates, and automatically opens a GitHub Issue for maintainer review. See [digest.txt](./digest.txt).
 
-This repository includes a GitHub Actions workflow that automatically monitors a container base image for updates and notifies maintainers when a change occurs.
+## The How
+I prioritized an **Event-Driven Security Model**. Rather than polling daily for image changes, this GitHub action triggers an alert only when the "Identity" (Digest) of the base image shifts, reducing noise while ensuring the maintainer is alerted for a manual security validation.
 
-## Overview
+## Key Features
+- [ ] Automated digest tracking (Microsoft Container Registry)
+- [ ] Version control persistence (digest history)
+- [ ] Proactive notification (GitHub Issue creation)
+- [ ] Manual override (force_update workflow dispatch)
 
-The **Check Base Image Updates** workflow tracks the image digest of:
+## Usage
+The workflow runs automatically on a weekday schedule (08:00 EST) or can be triggered manually via the GitHub Actions tab.
 
-    mcr.microsoft.com/dotnet/sdk:10.0
+## Security
+- **Immutable Tracking:** By monitoring the SHA256 digest, we ensure the image hash is audited and persisted in Git history.
+- **Human-in-the-loop:** The notification creates an Issue, ensuring a security review occurs before any manual rebuilds are triggered.
 
-On a scheduled basis (or on demand), the workflow:
-
-1.  Fetches the current image digest from Microsoft's container registry
-2.  Compares it to the last recorded digest stored in the repository
-3.  Detects changes or responds to a forced update trigger
-4.  Records the new digest in version control
-5.  Creates a GitHub Issue to notify maintainers when an update is detected
-
-This enables teams to stay informed when upstream base images change, supporting timely security reviews and rebuilds.
-
-***
-
-## Triggers
-
-The workflow runs in two ways:
-
-### 1. Scheduled Run
-
-```yaml
-schedule:
-  - cron: '0 13 * * 1-5'
-```
-
-*   Runs **weekdays at 13:00 UTC (08:00 EST)**
-*   Ensures regular monitoring without manual intervention
-
-### 2. Manual Trigger
-
-```yaml
-workflow_dispatch:
-  inputs:
-    force_update:
-      type: boolean
-```
-
-*   Can be triggered manually from the GitHub UI
-*   Optional `force_update` flag allows bypassing digest comparison logic
-
-***
-
-## Permissions
-
-The workflow requires the following repository permissions:
-
-| Permission             | Purpose                                |
-| ---------------------- | -------------------------------------- |
-| `contents: write`      | Commit and push `digest.txt`           |
-| `issues: write`        | Create GitHub Issues for notifications |
-| `pull-requests: write` | Reserved for future PR automation      |
-
-***
-
-## Job: `check-image`
-
-### Runner
-
-*   Executes on a **Linux x64 runner**
-*   (`self-hosted` can also be used)
-
-### Timeout
-
-*   Maximum runtime: **30 minutes**
-
-***
-
-## Workflow Steps
-
-### 1. Checkout Repository
-
-Uses `actions/checkout` to access the repository contents.
-
-### 2. Install Dependencies
-
-Installs:
-
-*   **skopeo** – inspects container image metadata
-*   **jq** – parses JSON output
-
-### 3. Fetch Current Image Digest
-
-*   Inspects the image:
-        docker://mcr.microsoft.com/dotnet/sdk:10.0
-*   Extracts the SHA256 digest and exposes it as a workflow output
-
-### 4. Compare with Previous Digest
-
-*   Reads `digest.txt` if present
-*   Determines whether an update is required based on:
-    *   Digest change
-    *   Manual `force_update=true` input
-
-### 5. Save Current Digest
-
-*   Writes the current digest to `digest.txt`
-
-### 6. Commit and Push Update (Conditional)
-
-*   Only runs when an update is detected or forced
-*   Commits the updated `digest.txt`
-*   Pushes the change back to the repository
-
-### 7. Notify via GitHub Issue (Conditional)
-
-When an update occurs, the workflow:
-
-*   Creates a GitHub Issue using the REST API
-*   Includes:
-    *   New image digest
-    *   Previous image digest
-    *   Reference links to Microsoft’s .NET container documentation
-
-This notification works for both **GitHub.com** and **GitHub Enterprise Server**, using the dynamically supplied API URL.
-
-***
-
-## Artifacts and Outputs
-
-*   **`digest.txt`**  
-    Stores the most recently observed image digest and acts as the comparison baseline.
-
-*   **GitHub Issue**  
-    Serves as a human‑readable alert that the base image has changed.
-
-***
-
-## Use Cases
-
-*   Monitoring upstream base image changes
-*   Supporting supply chain security reviews
-*   Triggering downstream rebuilds or manual validation
-*   Auditing image updates over time via git history
-
-***
-
-## Future Enhancements (Optional)
-
-*   Automatically open a Pull Request instead of a direct commit
-*   Trigger dependent workflows on image update
-*   Extend to monitor multiple images
-*   Add Slack / Teams / email notifications
-*   Add image rebuild automations
+## License
+MIT
