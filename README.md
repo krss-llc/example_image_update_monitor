@@ -1,26 +1,45 @@
-# Image Update Monitor
+# Container Image Update Monitor
+
+## Overview
+Automated GitHub Action that tracks upstream container base image digests and creates alerts when updates are detected.
 
 ## The Problem
-Maintaining secure container environments requires tracking upstream base image updates. Manually checking for digest changes is inefficient and prone to human error, creating gaps in supply chain visibility.
+Container supply chain security requires tracking base image updates, but manual digest checking is unreliable and creates security blind spots.
 
 ## The Solution
-An automated GitHub Actions workflow that tracks a container base image digest, detects updates, and automatically opens a GitHub Issue for maintainer review. See [digest.txt](./digest.txt).
+An event-driven workflow that:
+- Monitors Microsoft Container Registry base image digests
+- Triggers only on identity (SHA256) changes
+- Opens GitHub Issues for maintainer review
+- Persists digest history in Git
 
-## The How
-I prioritized an **Event-Driven Security Model**. Rather than polling daily for image changes, this GitHub action triggers an alert only when the "Identity" (Digest) of the base image shifts, reducing noise while ensuring the maintainer is alerted for a manual security validation.
-
-## Key Features
-- [ ] Automated digest tracking (Microsoft Container Registry)
-- [ ] Version control persistence (digest history)
-- [ ] Proactive notification (GitHub Issue creation)
-- [ ] Manual override (force_update workflow dispatch)
+## Architecture
+```
+.
+├── .github/workflows/check-base-image.yml  # Main workflow
+├── digest.txt                            # Current image digest
+└── README.md                             # This file
+```
 
 ## Usage
-The workflow runs automatically on a weekday schedule (08:00 EST) or can be triggered manually via the GitHub Actions tab.
+```yaml
+# In your workflow dispatch:
+workflow_dispatch:
+  inputs:
+    force_update:
+      description: 'Force digest check'
+      required: false
+```
 
-## Security
-- **Immutable Tracking:** By monitoring the SHA256 digest, we ensure the image hash is audited and persisted in Git history.
-- **Human-in-the-loop:** The notification creates an Issue, ensuring a security review occurs before any manual rebuilds are triggered.
+## Security Model
+- **Immutable Tracking:** SHA256 digests ensure image integrity
+- **Human-in-the-loop:** Issues created for manual review before rebuild
+- **No auto-deploy:** Changes never automatically applied
+
+## Configuration
+Set these repository secrets:
+- `IMAGE_NAME` - Full image path (e.g., `mcr.microsoft.com/devcontainers/base`)
+- `CRON_SCHEDULE` - When to check (default: `0 8 * * 1-5` - weekdays 8AM EST)
 
 ## License
 MIT
