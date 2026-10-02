@@ -1,0 +1,105 @@
+name: Check GitHub Runner Releases
+
+on:
+  schedule:
+    #- cron: '0 14 * * *' # Daily at 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check-runner-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest official runner release
+        id: latest
+        run: |
+          RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)
+          TAG=$(printf '%s' "$RELEASE_JSON" | grep -m1 -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | cut -d '"' -f4)
+          URL=$(printf '%s' "$RELEASE_JSON" | grep -m1 -oE '"html_url"[[:space:]]*:[[:space:]]*"[^"]+"' | cut -d '"' -f4)
+
+          if [ -z "$TAG" ] || [ -z "$URL" ]; then
+            echo "Failed to parse release metadata from GitHub API response"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Latest release: $TAG"
+
+      - name: Compare with last known release
+        id: compare
+        run: |
+          LAST_TAG=""
+          if [ -f runner-release.txt ]; then
+            LAST_TAG=$(cat runner-release.txt)
+          fi
+
+          PREVIOUS_TAG=${LAST_TAG:-none}
+          echo "last_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+
+          if [ "$LAST_TAG" != "${{ steps.latest.outputs.tag }}" ]; then
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "New release detected"
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "No new release"
+          fi
+
+      - name: Save latest release tag
+        if: ${{ steps.compare.outputs.updated == 'true' }}
+        run: echo "${{ steps.latest.outputs.tag }}" > runner-release.txt
+
+      - name: Commit release state
+        if: ${{ steps.compare.outputs.updated == 'true' }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "actions@github.com"
+          git add runner-release.txt
+          git commit -m "Track actions/runner release ${{ steps.latest.outputs.tag }}" || echo "Nothing to commit"
+          git push || echo "Nothing to push"
+
+      - name: Check for existing open issue
+        if: ${{ steps.compare.outputs.updated == 'true' }}
+        id: issue_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="New actions/runner release: ${{ steps.latest.outputs.tag }}"
+          ISSUES_JSON=$(curl -fsSL "$API_URL/repos/$REPO/issues?state=open&per_page=100" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28")
+
+          if printf '%s' "$ISSUES_JSON" | grep -Fq "\"title\":\"$TITLE\""; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Open issue already exists for $TITLE"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No existing open issue for $TITLE"
+          fi
+
+      - name: Create issue for new release
+        if: ${{ steps.compare.outputs.updated == 'true' && steps.issue_check.outputs.exists != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="New actions/runner release: ${{ steps.latest.outputs.tag }}"
+          BODY="A new official GitHub runner release was detected.\n\n- Previous: \`${{ steps.compare.outputs.last_tag }}\`\n- Current: \`${{ steps.latest.outputs.tag }}\`\n- Release page: ${{ steps.latest.outputs.url }}\n\nPlease review: https://github.com/actions/runner/releases/"
+
+          curl -sS -X POST "$API_URL/repos/$REPO/issues" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "{\"title\":\"$TITLE\",\"body\":\"$BODY\"}" \
+            --fail
